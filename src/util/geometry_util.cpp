@@ -19,6 +19,7 @@ struct Point {
 	Point(dim_t x, dim_t y): x(x), y(y) {}
 	dim_t x = 0;
 	dim_t y = 0;
+	bool marked = false;
 
 	bool operator==(const Point& other) const {
 		return this->x == other.x && this->y == other.y;
@@ -1190,8 +1191,510 @@ dim_t polygonProjectionDistance(Polygon A, Polygon B, const Point& direction) {
 	return distance;
 }
 
+// returns true if point already exists in the given nfp
+bool inNfp(const Point& p, const std::vector<Polygon>& nfp) {
+	if (nfp.empty()) {
+		return false;
+	}
 
+	for (size_t i = 0; i < nfp.size(); i++) {
+		for (size_t j = 0; j < nfp[i].size(); j++) {
+			if (_almostEqual(p.x, nfp[i][j].x) && _almostEqual(p.y, nfp[i][j].y)) {
+				return true;
+			}
+		}
+	}
+
+	return false;
+}
+Point searchStartPoint(Polygon A, Polygon B, bool inside,
+		const vector<Polygon>& NFP = {}) {
+
+	// close the loop for polygons
+	if (A[0] != A[A.size() - 1]) {
+		A.push_back(A[0]);
+	}
+
+	if (B[0] != B[B.size() - 1]) {
+		B.push_back(B[0]);
+	}
+
+	for (size_t i = 0; i < A.size() - 1; i++) {
+		if (!A[i].marked) {
+			A[i].marked = true;
+			for (size_t j = 0; j < B.size(); j++) {
+				B.offsetx = A[i].x - B[j].x;
+				B.offsety = A[i].y - B[j].y;
+
+				PointInPolygonResult Binside;
+				for (size_t k = 0; k < B.size(); k++) {
+					PointInPolygonResult inpoly = pointInPolygon( { B[k].x + B.offsetx,
+							 B[k].y + B.offsety }, A);
+					if (inpoly != INVALID) {
+						Binside = inpoly;
+						break;
+					}
+				}
+
+				if (Binside == INVALID) { // A and B are the same
+					return INVALID_POINT;
+				}
+
+				Point startPoint = { B.offsetx, B.offsety };
+				if (((Binside && inside) || (!Binside && !inside)) && !intersect(A, B)
+						&& !inNfp(startPoint, NFP)) {
+					return startPoint;
+				}
+
+				// slide B along vector
+				dim_t vx = A[i + 1].x - A[i].x;
+				dim_t vy = A[i + 1].y - A[i].y;
+
+				dim_t d1 = polygonProjectionDistance(A, B, {vx, vy });
+				dim_t d2 = polygonProjectionDistance(B, A, {-vx, -vy });
+
+				dim_t d = DIM_MAX;
+
+				// todo: clean this up
+				if (d1 == DIM_MAX && d2 == DIM_MAX) {
+					// nothin
+				} else if (d1 == DIM_MAX) {
+					d = d2;
+				} else if (d2 == DIM_MAX) {
+					d = d1;
+				} else {
+					d = std::min(d1, d2);
+				}
+
+				// only slide until no longer negative
+				// todo: clean this up
+				if (d == DIM_MAX && !_almostEqual(d, 0) && d > 0) {
+
+				} else {
+					continue;
+				}
+
+				dim_t vd2 = vx * vx + vy * vy;
+
+				if (d * d < vd2 && !_almostEqual(d * d, vd2)) {
+					dim_t vd = sqrt(vx * vx + vy * vy);
+					vx *= d / vd;
+					vy *= d / vd;
+				}
+
+				B.offsetx += vx;
+				B.offsety += vy;
+
+				for (size_t k = 0; k < B.size(); k++) {
+					PointInPolygonResult inpoly = pointInPolygon( { B[k].x + B.offsetx,
+							B[k].y + B.offsety }, A);
+					if (inpoly == INVALID) {
+						Binside = inpoly;
+						break;
+					}
+				}
+				startPoint = {B.offsetx, B.offsety};
+				if (((Binside && inside) || (!Binside && !inside)) && !intersect(A, B)
+						&& !inNfp(startPoint, NFP)) {
+					return startPoint;
+				}
+			}
+		}
+	}
+
+	return INVALID_POINT;
+}
+
+bool isRectangle(const Polygon& poly, dim_t tolerance = FLOAT_TOL) {
+	Rect bb = getPolygonBounds(poly);
+
+	for (size_t i = 0; i < poly.size(); i++) {
+		if (!_almostEqual(poly[i].x, bb.x)
+				&& !_almostEqual(poly[i].x, bb.x + bb.width)) {
+			return false;
+		}
+		if (!_almostEqual(poly[i].y, bb.y)
+				&& !_almostEqual(poly[i].y, bb.y + bb.height)) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
+// returns an interior NFP for the special case where A is a rectangle
+vector<Polygon> noFitPolygonRectangle(const Polygon& A, const Polygon& B) {
+	dim_t minAx = A[0].x;
+	dim_t minAy = A[0].y;
+	dim_t maxAx = A[0].x;
+	dim_t maxAy = A[0].y;
+
+	for (size_t i = 1; i < A.size(); i++) {
+		if (A[i].x < minAx) {
+			minAx = A[i].x;
+		}
+		if (A[i].y < minAy) {
+			minAy = A[i].y;
+		}
+		if (A[i].x > maxAx) {
+			maxAx = A[i].x;
+		}
+		if (A[i].y > maxAy) {
+			maxAy = A[i].y;
+		}
+	}
+
+	dim_t minBx = B[0].x;
+	dim_t minBy = B[0].y;
+	dim_t maxBx = B[0].x;
+	dim_t maxBy = B[0].y;
+
+	for (size_t i = 1; i < B.size(); i++) {
+		if (B[i].x < minBx) {
+			minBx = B[i].x;
+		}
+		if (B[i].y < minBy) {
+			minBy = B[i].y;
+		}
+		if (B[i].x > maxBx) {
+			maxBx = B[i].x;
+		}
+		if (B[i].y > maxBy) {
+			maxBy = B[i].y;
+		}
+	}
+
+	if (maxBx - minBx > maxAx - minAx) {
+		return {};
+	}
+	if (maxBy - minBy > maxAy - minAy) {
+		return {};
+	}
+
+	return { {
+			{	minAx-minBx+B[0].x, minAy-minBy+B[0].y},
+			{	maxAx-maxBx+B[0].x, minAy-minBy+B[0].y},
+			{	maxAx-maxBx+B[0].x, maxAy-maxBy+B[0].y},
+			{	minAx-minBx+B[0].x, maxAy-maxBy+B[0].y}
+		}};
+}
+
+// given a static polygon A and a movable polygon B, compute a no fit polygon by orbiting B about A
+	// if the inside flag is set, B is orbited inside of A rather than outside
+	// if the searchEdges flag is set, all edges of A are explored for NFPs - multiple
+vector<Polygon>	noFitPolygon(Polygon A, Polygon B, bool inside, bool searchEdges){
+		if(A.size() < 3 || B.size() < 3){
+			return {};
+		}
+
+		A.offsetx = 0;
+		A.offsety = 0;
+
+		size_t i, j;
+
+		dim_t minA = A[0].y;
+		size_t minAindex = 0;
+
+		dim_t maxB = B[0].y;
+		size_t maxBindex = 0;
+
+		for(i=1; i<A.size(); i++){
+			A[i].marked = false;
+			if(A[i].y < minA){
+				minA = A[i].y;
+				minAindex = i;
+			}
+		}
+
+		for(i=1; i<B.size(); i++){
+			B[i].marked = false;
+			if(B[i].y > maxB){
+				maxB = B[i].y;
+				maxBindex = i;
+			}
+		}
+
+		Point startpoint;
+		if(!inside){
+			// shift B such that the bottom-most point of B is at the top-most point of A. This guarantees an initial placement with no intersections
+			startpoint = {
+				A[minAindex].x-B[maxBindex].x,
+				A[minAindex].y-B[maxBindex].y
+			};
+		}
+		else{
+			// no reliable heuristic for inside
+			startpoint = searchStartPoint(A,B,true);
+		}
+
+		vector<Polygon> NFPlist;
+
+		struct EdgeDescriptor {
+			int8_t type;
+			size_t A;
+			size_t B;
+		};
+
+		while(startpoint != INVALID_POINT){
+			B.offsetx = startpoint.x;
+			B.offsety = startpoint.y;
+
+
+			// maintain a list of touching points/edges
+			vector<EdgeDescriptor> touching;
+
+			Point prevvector = INVALID_POINT; // keep track of previous vector
+			Polygon NFP;
+			NFP.push_back({B[0].x+B.offsetx,B[0].y+B.offsety});
+
+			dim_t referencex = B[0].x+B.offsetx;
+			dim_t referencey = B[0].y+B.offsety;
+			dim_t startx = referencex;
+			dim_t starty = referencey;
+			size_t counter = 0;
+
+			while(counter < 10*(A.size() + B.size())){ // sanity check, prevent infinite loop
+				touching = {};
+				// find touching vertices/edges
+				for(i=0; i<A.size(); i++){
+					size_t nexti = (i==A.size()-1) ? 0 : i+1;
+					for(j=0; j<B.size(); j++){
+						size_t nextj = (j==B.size()-1) ? 0 : j+1;
+						if(_almostEqual(A[i].x, B[j].x+B.offsetx) && _almostEqual(A[i].y, B[j].y+B.offsety)){
+							touching.push_back({ 0, i, j });
+						}
+						else if(_onSegment(A[i],A[nexti],{B[j].x+B.offsetx, B[j].y + B.offsety})){
+							touching.push_back({	1, nexti, j });
+						}
+						else if(_onSegment({B[j].x+B.offsetx, B[j].y + B.offsety},{B[nextj].x+B.offsetx, B[nextj].y + B.offsety},A[i])){
+							touching.push_back({	2, i, nextj });
+						}
+					}
+				}
+
+
+				struct TransVector {
+					dim_t x;
+					dim_t y;
+					Point start;
+					Point end;
+
+					bool operator==(const TransVector& other) const {
+						return this->x == other.x && this->y == other.y && this->start == other.start && this->end == other.end;
+					}
+
+					bool operator!=(const TransVector& other) const {
+						return !this->operator==(other);
+					}
+				};
+
+				const TransVector INVALID_TRANSVECTOR = {DIM_MAX, DIM_MAX, INVALID_POINT, INVALID_POINT};
+				// generate translation vectors from touching vertices/edges
+				vector<TransVector> vectors;
+				for(i=0; i<touching.size(); i++){
+					Point vertexA = A[touching[i].A];
+					vertexA.marked = true;
+
+					// adjacent A vertices
+					size_t prevAindex = touching[i].A-1;
+					size_t nextAindex = touching[i].A+1;
+
+					prevAindex = (prevAindex < 0) ? A.size()-1 : prevAindex; // loop
+					nextAindex = (nextAindex >= A.size()) ? 0 : nextAindex; // loop
+
+					Point prevA = A[prevAindex];
+					Point nextA = A[nextAindex];
+
+					// adjacent B vertices
+					Point vertexB = B[touching[i].B];
+
+					size_t prevBindex = touching[i].B-1;
+					size_t nextBindex = touching[i].B+1;
+
+					prevBindex = (prevBindex < 0) ? B.size()-1 : prevBindex; // loop
+					nextBindex = (nextBindex >= B.size()) ? 0 : nextBindex; // loop
+
+					Point prevB = B[prevBindex];
+					Point nextB = B[nextBindex];
+
+					if(touching[i].type == 0){
+						TransVector vA1 = {
+							prevA.x-vertexA.x,
+							prevA.y-vertexA.y,
+							vertexA,
+							prevA
+						};
+
+						TransVector vA2 = {
+							nextA.x-vertexA.x,
+							nextA.y-vertexA.y,
+							vertexA,
+							nextA
+						};
+
+						// B vectors need to be inverted
+						TransVector vB1 = {
+							vertexB.x-prevB.x,
+							vertexB.y-prevB.y,
+							prevB,
+							vertexB
+						};
+
+						TransVector vB2 = {
+							vertexB.x-nextB.x,
+							vertexB.y-nextB.y,
+							nextB,
+							vertexB
+						};
+
+						vectors.push_back(vA1);
+						vectors.push_back(vA2);
+						vectors.push_back(vB1);
+						vectors.push_back(vB2);
+					}
+					else if(touching[i].type == 1){
+						vectors.push_back({
+							vertexA.x-(vertexB.x+B.offsetx),
+							vertexA.y-(vertexB.y+B.offsety),
+							prevA,
+							vertexA
+						});
+
+						vectors.push_back({
+							prevA.x-(vertexB.x+B.offsetx),
+							prevA.y-(vertexB.y+B.offsety),
+							vertexA,
+							prevA
+						});
+					}
+					else if(touching[i].type == 2){
+						vectors.push_back({
+							vertexA.x-(vertexB.x+B.offsetx),
+							vertexA.y-(vertexB.y+B.offsety),
+							prevB,
+							vertexB
+						});
+
+						vectors.push_back({
+							vertexA.x-(prevB.x+B.offsetx),
+							vertexA.y-(prevB.y+B.offsety),
+							vertexB,
+							prevB
+						});
+					}
+				}
+
+				// todo: there should be a faster way to reject vectors that will cause immediate intersection. For now just check them all
+
+				TransVector translate = INVALID_TRANSVECTOR;
+				dim_t maxd = 0;
+
+				for(i=0; i<vectors.size(); i++){
+					if(vectors[i].x == 0 && vectors[i].y == 0){
+						continue;
+					}
+
+					// if this vector points us back to where we came from, ignore it.
+					// ie cross product = 0, dot product < 0
+					if(prevvector != INVALID_POINT && vectors[i].y * prevvector.y + vectors[i].x * prevvector.x < 0){
+						// compare magnitude with unit vectors
+						dim_t vectorlength = sqrt(vectors[i].x*vectors[i].x+vectors[i].y*vectors[i].y);
+						Point unitv = {vectors[i].x/vectorlength, vectors[i].y/vectorlength};
+
+						dim_t prevlength = sqrt(prevvector.x*prevvector.x+prevvector.y*prevvector.y);
+						Point prevunit = {prevvector.x/prevlength, prevvector.y/prevlength};
+
+						// we need to scale down to unit vectors to normalize vector length. Could also just do a tan here
+						if(fabs(unitv.y * prevunit.x - unitv.x * prevunit.y) < 0.0001){
+							continue;
+						}
+					}
+
+					Point pv = {vectors[i].x, vectors[i].y};
+					dim_t d = polygonSlideDistance(A, B, pv, true);
+					dim_t vecd2 = vectors[i].x*vectors[i].x + vectors[i].y*vectors[i].y;
+
+					if(d == DIM_MAX || d*d > vecd2){
+						dim_t vecd = sqrt(vectors[i].x*vectors[i].x + vectors[i].y*vectors[i].y);
+						d = vecd;
+					}
+
+					if(d != DIM_MAX && d > maxd){
+						maxd = d;
+						translate = vectors[i];
+					}
+				}
+
+
+				if(translate == INVALID_TRANSVECTOR || _almostEqual(maxd, 0)){
+					// didn't close the loop, something went wrong here
+					NFP = {};
+					break;
+				}
+
+				translate.start.marked = true;
+				translate.end.marked = true;
+
+				prevvector = Point(translate.x, translate.y);
+
+				// trim
+				dim_t vlength2 = translate.x*translate.x + translate.y*translate.y;
+				if(maxd*maxd < vlength2 && !_almostEqual(maxd*maxd, vlength2)){
+					dim_t scale = sqrt((maxd*maxd)/vlength2);
+					translate.x *= scale;
+					translate.y *= scale;
+				}
+
+				referencex += translate.x;
+				referencey += translate.y;
+
+				if(_almostEqual(referencex, startx) && _almostEqual(referencey, starty)){
+					// we've made a full loop
+					break;
+				}
+
+				// if A and B start on a touching horizontal line, the end point may not be the start point
+				bool looped = false;
+				if(!NFP.empty()){
+					for(i=0; i<NFP.size()-1; i++){
+						if(_almostEqual(referencex, NFP[i].x) && _almostEqual(referencey, NFP[i].y)){
+							looped = true;
+						}
+					}
+				}
+
+				if(looped){
+					// we've made a full loop
+					break;
+				}
+
+				NFP.push_back({
+					referencex,
+					referencey
+				});
+
+				B.offsetx += translate.x;
+				B.offsety += translate.y;
+
+				counter++;
+			}
+
+			if(!NFP.empty()){
+				NFPlist.push_back(NFP);
+			}
+
+			if(!searchEdges){
+				// only get outer NFP or first inner NFP
+				break;
+			}
+
+			startpoint = searchStartPoint(A,B,inside,NFPlist);
+		}
+
+		return NFPlist;
+	}
 } //GeometryUtil
+
 
 
 int main() {
