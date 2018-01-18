@@ -11,8 +11,8 @@ using std::list;
 using std::vector;
 
 typedef double dim_t;
-const dim_t DIM_MAX = DIM_MAX;
-const dim_t DIM_MIN = DIM_MIN;
+const dim_t DIM_MAX = std::numeric_limits<dim_t>::max();
+const dim_t DIM_MIN = std::numeric_limits<dim_t>::min();
 
 struct Point {
 	Point() {};
@@ -950,12 +950,6 @@ dim_t segmentDistance(const Point& A, const Point& B, const Point& E,
 	dim_t crossB = B.x * direction.x + B.y * direction.y;
 	dim_t crossE = E.x * direction.x + E.y * direction.y;
 	dim_t crossF = F.x * direction.x + F.y * direction.y;
-
-	dim_t crossABmin = std::min(crossA, crossB);
-	dim_t crossABmax = std::max(crossA, crossB);
-
-	dim_t crossEFmax = std::max(crossE, crossF);
-	dim_t crossEFmin = std::min(crossE, crossF);
 
 	dim_t ABmin = std::min(dotA, dotB);
 	dim_t ABmax = std::max(dotA, dotB);
