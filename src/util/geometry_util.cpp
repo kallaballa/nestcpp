@@ -6,6 +6,7 @@
 #include <list>
 #include <cstdint>
 #include <algorithm>
+#include <initializer_list>
 
 using std::list;
 using std::vector;
@@ -40,8 +41,16 @@ struct Rect {
 
 class Polygon : public vector<Point> {
 public:
+	Polygon() {}
+
+	Polygon(std::initializer_list<Point> list) : vector<Point>(list) {
+	}
 	dim_t offsetx = 0;
 	dim_t offsety = 0;
+	dim_t x = 0;
+	dim_t y = 0;
+	dim_t width = 0;
+	dim_t height = 0;
 };
 
 const Point INVALID_POINT(DIM_MAX,DIM_MAX);
@@ -1226,7 +1235,7 @@ Point searchStartPoint(Polygon A, Polygon B, bool inside,
 				B.offsetx = A[i].x - B[j].x;
 				B.offsety = A[i].y - B[j].y;
 
-				PointInPolygonResult Binside;
+				PointInPolygonResult Binside = INVALID;
 				for (size_t k = 0; k < B.size(); k++) {
 					PointInPolygonResult inpoly = pointInPolygon( { B[k].x + B.offsetx,
 							 B[k].y + B.offsety }, A);
@@ -1693,6 +1702,199 @@ vector<Polygon>	noFitPolygon(Polygon A, Polygon B, bool inside, bool searchEdges
 
 		return NFPlist;
 	}
+
+// given two polygons that touch at at least one point, but do not intersect. Return the outer perimeter of both polygons as a single continuous polygon
+// A and B must have the same winding direction
+Polygon polygonHull(Polygon A, Polygon B) {
+	if (A.size() < 3 || B.size() < 3) {
+		return {};
+	}
+
+	size_t i, j;
+
+	dim_t Aoffsetx = A.offsetx;
+	dim_t Aoffsety = A.offsety;
+	dim_t Boffsetx = B.offsetx;
+	dim_t Boffsety = B.offsety;
+
+	// start at an extreme point that is guaranteed to be on the final polygon
+	dim_t miny = A[0].y;
+	//FIXME: AMIR use pointers
+	Polygon startPolygon = A;
+	size_t startIndex = 0;
+
+	for (i = 0; i < A.size(); i++) {
+		if (A[i].y + Aoffsety < miny) {
+			miny = A[i].y + Aoffsety;
+			startPolygon = A;
+			startIndex = i;
+		}
+	}
+
+	for (i = 0; i < B.size(); i++) {
+		if (B[i].y + Boffsety < miny) {
+			miny = B[i].y + Boffsety;
+			startPolygon = B;
+			startIndex = i;
+		}
+	}
+
+	// for simplicity we'll define polygon A as the starting polygon
+	if (startPolygon == B) {
+		B = A;
+		A = startPolygon;
+		Aoffsetx = A.offsetx || 0;
+		Aoffsety = A.offsety || 0;
+		Boffsetx = B.offsetx || 0;
+		Boffsety = B.offsety || 0;
+	}
+
+	list<Point> C;
+	size_t current = startIndex;
+	size_t intercept1 = std::numeric_limits<size_t>::max();
+	size_t intercept2 = std::numeric_limits<size_t>::max();
+
+	// scan forward from the starting point
+	for (i = 0; i < A.size() + 1; i++) {
+		current = (current == A.size()) ? 0 : current;
+		size_t next = (current == A.size() - 1) ? 0 : current + 1;
+		bool touching = false;
+		for (j = 0; j < B.size(); j++) {
+			size_t nextj = (j == B.size() - 1) ? 0 : j + 1;
+			if (_almostEqual(A[current].x + Aoffsetx, B[j].x + Boffsetx)
+					&& _almostEqual(A[current].y + Aoffsety, B[j].y + Boffsety)) {
+				C.push_back( { A[current].x + Aoffsetx, A[current].y + Aoffsety });
+				intercept1 = j;
+				touching = true;
+				break;
+			} else if (_onSegment(
+					{ A[current].x + Aoffsetx, A[current].y + Aoffsety },
+					{ A[next].x + Aoffsetx, A[next].y + Aoffsety },
+					{ B[j].x + Boffsetx, B[j].y + Boffsety })) {
+				C.push_back( { A[current].x + Aoffsetx, A[current].y + Aoffsety });
+				C.push_back( { B[j].x + Boffsetx, B[j].y + Boffsety });
+				intercept1 = j;
+				touching = true;
+				break;
+			} else if (_onSegment( { B[j].x + Boffsetx, B[j].y + Boffsety },
+					{B[nextj].x + Boffsetx, B[nextj].y + Boffsety },
+					{ A[current].x + Aoffsetx, A[current].y + Aoffsety })) {
+				C.push_back( { A[current].x + Aoffsetx, A[current].y + Aoffsety });
+				C.push_back( { B[nextj].x + Boffsetx, B[nextj].y + Boffsety });
+				intercept1 = nextj;
+				touching = true;
+				break;
+			}
+		}
+
+		if (touching) {
+			break;
+		}
+
+		C.push_back( { A[current].x + Aoffsetx, A[current].y + Aoffsety });
+
+		current++;
+	}
+
+	// scan backward from the starting point
+	current = startIndex - 1;
+	for (i = 0; i < A.size() + 1; i++) {
+		current = (current < 0) ? A.size() - 1 : current;
+		size_t next = (current == 0) ? A.size() - 1 : current - 1;
+		bool touching = false;
+		for (j = 0; j < B.size(); j++) {
+			size_t nextj = (j == B.size() - 1) ? 0 : j + 1;
+			if (_almostEqual(A[current].x + Aoffsetx, B[j].x + Boffsetx)
+					&& _almostEqual(A[current].y, B[j].y + Boffsety)) {
+				C.push_front( { A[current].x + Aoffsetx, A[current].y + Aoffsety });
+				intercept2 = j;
+				touching = true;
+				break;
+			} else if (_onSegment(
+					{ A[current].x + Aoffsetx, A[current].y + Aoffsety },
+					{ A[next].x + Aoffsetx, A[next].y + Aoffsety },
+					{ B[j].x + Boffsetx, B[j].y + Boffsety })) {
+				C.push_front( { A[current].x + Aoffsetx, A[current].y + Aoffsety });
+				C.push_front( { B[j].x + Boffsetx, B[j].y + Boffsety });
+				intercept2 = j;
+				touching = true;
+				break;
+			} else if (_onSegment(
+					{ B[j].x + Boffsetx, B[j].y + Boffsety },
+					{ B[nextj].x + Boffsetx, B[nextj].y + Boffsety },
+					{ A[current].x + Aoffsetx, A[current].y + Aoffsety })) {
+				C.push_front( { A[current].x + Aoffsetx, A[current].y + Aoffsety });
+				intercept2 = j;
+				touching = true;
+				break;
+			}
+		}
+
+		if (touching) {
+			break;
+		}
+
+		C.push_front( { A[current].x + Aoffsetx, A[current].y + Aoffsety });
+
+		current--;
+	}
+
+	if (intercept1 == std::numeric_limits<size_t>::max()
+			|| intercept2 == std::numeric_limits<size_t>::max()) {
+		// polygons not touching?
+		return {};
+	}
+
+	// the relevant points on B now lie between intercept1 and intercept2
+	current = intercept1 + 1;
+	for (i = 0; i < B.size(); i++) {
+		current = (current == B.size()) ? 0 : current;
+		C.push_back( { B[current].x + Boffsetx, B[current].y + Boffsety });
+
+		if (current == intercept2) {
+			break;
+		}
+
+		current++;
+	}
+
+	// dedupe
+	//FIXME: AMIR we need to copy the list because list supports push_front and vector supports access by index
+	Polygon PC;
+	std::copy(std::begin(C), std::end(C), std::back_inserter(PC));
+
+	for (i = 0; i < PC.size(); i++) {
+		size_t next = (i == PC.size() - 1) ? 0 : i + 1;
+		if (_almostEqual(PC[i].x, PC[next].x)
+				&& _almostEqual(PC[i].y, PC[next].y)) {
+			PC.erase(PC.begin() + i);
+			i--;
+		}
+	}
+
+	return PC;
+}
+
+Polygon rotatePolygon(const Polygon& polygon, dim_t angle){
+	Polygon rotated;;
+	angle = angle * M_PI / 180;
+	for(size_t i=0; i<polygon.size(); i++){
+		dim_t x = polygon[i].x;
+		dim_t y = polygon[i].y;
+		dim_t x1 = x*cos(angle)-y*sin(angle);
+		dim_t y1 = x*sin(angle)+y*cos(angle);
+
+		rotated.push_back({x1, y1});
+	}
+	// reset bounding box
+	Rect bounds = getPolygonBounds(rotated);
+	rotated.x = bounds.x;
+	rotated.y = bounds.y;
+	rotated.width = bounds.width;
+	rotated.height = bounds.height;
+
+	return rotated;
+}
 } //GeometryUtil
 
 
