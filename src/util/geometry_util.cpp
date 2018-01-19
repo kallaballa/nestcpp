@@ -1,64 +1,9 @@
 #define _USE_MATH_DEFINES
-#include <cmath>
-#include <algorithm>
-#include <limits>
-#include <vector>
-#include <list>
-#include <cstdint>
-#include <algorithm>
-#include <initializer_list>
+#include "geometry_util.hpp"
 
-using std::list;
-using std::vector;
 
-typedef double dim_t;
-const dim_t DIM_MAX = std::numeric_limits<dim_t>::max();
-const dim_t DIM_MIN = std::numeric_limits<dim_t>::min();
-
-struct Point {
-	Point() {};
-	Point(dim_t x, dim_t y): x(x), y(y) {}
-	dim_t x = 0;
-	dim_t y = 0;
-	bool marked = false;
-
-	bool operator==(const Point& other) const {
-		return this->x == other.x && this->y == other.y;
-	}
-
-	bool operator!=(const Point& other) const {
-		return !this->operator==(other);
-	}
-};
-
-struct Rect {
-	Rect(dim_t x, dim_t y, dim_t width, dim_t height): x(x), y(y), width(width), height(height) {}
-	dim_t x = 0;
-	dim_t y = 0;
-	dim_t width = 0;
-	dim_t height = 0;
-};
-
-class Polygon : public vector<Point> {
-public:
-	Polygon() {}
-
-	Polygon(std::initializer_list<Point> list) : vector<Point>(list) {
-	}
-	dim_t offsetx = 0;
-	dim_t offsety = 0;
-	dim_t x = 0;
-	dim_t y = 0;
-	dim_t width = 0;
-	dim_t height = 0;
-};
-
-const Point INVALID_POINT(DIM_MAX,DIM_MAX);
-const Rect INVALID_RECT(DIM_MAX,DIM_MAX,DIM_MAX,DIM_MAX);
-
-const dim_t FLOAT_TOL = pow(10, -9);
-
-bool _almostEqual(dim_t a, dim_t b, dim_t tolerance = FLOAT_TOL) {
+namespace GeometryUtil {
+bool _almostEqual(dim_t a, dim_t b, dim_t tolerance) {
 	return fabs(a - b) < tolerance;
 }
 
@@ -143,7 +88,7 @@ bool _onSegment(const Point& A,const Point& B, const Point& p){
 	return true;
 }
 
-Point _lineIntersect(const Point& A,const Point& B,const Point& E,const Point& F, bool infinite = false){
+Point _lineIntersect(const Point& A,const Point& B,const Point& E,const Point& F, bool infinite){
 	dim_t a1, a2, b1, b2, c1, c2, x, y;
 
 	a1= B.y-A.y;
@@ -181,14 +126,7 @@ Point _lineIntersect(const Point& A,const Point& B,const Point& E,const Point& F
 	return {x, y};
 }
 
-namespace GeometryUtil {
 namespace QuadradicBezier {
-
-struct Segment {
-	Point p1;
-	Point p2;
-	Point c1;
-};
 
 bool isFlat(const Point& p1, const Point& p2, const Point& c1, dim_t tol) {
 	tol = 4 * tol * tol;
@@ -238,12 +176,6 @@ list<Point> linearize(const Point& p1, const Point& p2, const Point& c1, dim_t t
 } //QuadraticBezier
 
 namespace CubicBezier {
-struct Segment {
-	Point p1;
-	Point p2;
-	Point c1;
-	Point c2;
-};
 
 bool isFlat(const Point& p1, const Point& p2, const Point& c1, const Point& c2,	dim_t tol) {
 	tol = 16 * tol * tol;
@@ -332,24 +264,6 @@ list<Point> linearize(const Point& p1, const Point& p2, const Point& c1, const P
 }
 } //CubeBezier
 namespace Arc {
-struct CenterArc {
-	Point center;
-	dim_t rx;
-	dim_t ry;
-	dim_t theta;
-	dim_t extent;
-	dim_t angle;
-};
-
-struct SvgArc {
-	Point p1;
-	Point p2;
-	dim_t rx;
-	dim_t ry;
-	dim_t angle;
-	int8_t largearc;
-	int8_t sweep;
-};
 
 SvgArc centerToSvg(const Point& center, const dim_t& rx, const dim_t& ry, dim_t theta1, const dim_t& extent, const dim_t& angleDegrees){
 	dim_t theta2 = theta1 + extent;
@@ -535,12 +449,6 @@ Rect getPolygonBounds(const Polygon& polygon){
 		ymax-ymin
 	};
 }
-
-enum PointInPolygonResult {
-	INSIDE,
-	OUTSIDE,
-	INVALID
-};
 
 PointInPolygonResult pointInPolygon(const Point& point, const Polygon& polygon){
 	if(polygon.size() < 3){
@@ -911,7 +819,7 @@ dim_t pointLineDistance(const Point& p, const Point& s1, const Point& s2, Point 
 }
 
 dim_t pointDistance(const Point& p, const Point& s1, const Point& s2,
-		Point normal, bool infinite = false) {
+		Point normal, bool infinite) {
 	normal = _normalizeVector(normal);
 
 	Point dir = { normal.y, -normal.x };
@@ -1217,7 +1125,7 @@ bool inNfp(const Point& p, const std::vector<Polygon>& nfp) {
 	return false;
 }
 Point searchStartPoint(Polygon A, Polygon B, bool inside,
-		const vector<Polygon>& NFP = {}) {
+		const vector<Polygon>& NFP) {
 
 	// close the loop for polygons
 	if (A[0] != A[A.size() - 1]) {
@@ -1314,7 +1222,7 @@ Point searchStartPoint(Polygon A, Polygon B, bool inside,
 	return INVALID_POINT;
 }
 
-bool isRectangle(const Polygon& poly, dim_t tolerance = FLOAT_TOL) {
+bool isRectangle(const Polygon& poly, dim_t tolerance) {
 	Rect bb = getPolygonBounds(poly);
 
 	for (size_t i = 0; i < poly.size(); i++) {
