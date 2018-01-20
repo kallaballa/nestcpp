@@ -1,22 +1,13 @@
-#define _USE_MATH_DEFINES
-#include <cmath>
+#ifndef SRC_UTIL_GEOMETRY_UTIL_HPP_
+#define SRC_UTIL_GEOMETRY_UTIL_HPP_
+
+#include "config.hpp"
 #include <algorithm>
-#include <limits>
 #include <vector>
 #include <list>
 #include <cstdint>
 #include <algorithm>
 #include <initializer_list>
-
-
-namespace GeometryUtil {
-
-using std::list;
-using std::vector;
-
-typedef double dim_t;
-const dim_t DIM_MAX = std::numeric_limits<dim_t>::max();
-const dim_t DIM_MIN = std::numeric_limits<dim_t>::min();
 
 struct Point {
 	Point() {};
@@ -42,11 +33,11 @@ struct Rect {
 	dim_t height = 0;
 };
 
-class Polygon : public vector<Point> {
+class Polygon : public std::vector<Point> {
 public:
 	Polygon() {}
 
-	Polygon(std::initializer_list<Point> list) : vector<Point>(list) {
+	Polygon(std::initializer_list<Point> list) : std::vector<Point>(list) {
 	}
 	dim_t offsetx = 0;
 	dim_t offsety = 0;
@@ -61,6 +52,10 @@ const Rect INVALID_RECT(DIM_MAX,DIM_MAX,DIM_MAX,DIM_MAX);
 
 const dim_t FLOAT_TOL = pow(10, -9);
 
+namespace GeometryUtil {
+
+using std::list;
+using std::vector;
 
 bool _almostEqual(dim_t a, dim_t b, dim_t tolerance = FLOAT_TOL);
 bool _withinDistance(const Point& p1, const Point& p2, dim_t distance);
@@ -157,3 +152,5 @@ vector<Polygon>	noFitPolygon(Polygon A, Polygon B, bool inside, bool searchEdges
 Polygon polygonHull(Polygon A, Polygon B);
 Polygon rotatePolygon(const Polygon& polygon, dim_t angle);
 } //GeometryUtil
+
+#endif //SRC_UTIL_GEOMETRY_UTIL_HPP_

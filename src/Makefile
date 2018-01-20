@@ -1,6 +1,6 @@
 TARGET := nestcpp
 
-SRCS    := util/geometry_util.cpp
+SRCS    := util/geometry_util.cpp util/matrix.cpp
 
 #precompiled headers
 HEADERS := 
